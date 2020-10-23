@@ -11,92 +11,46 @@
 #include <hal/nrf_clock.h>
 #include <device.h>
 #include <logging/log.h>
+#include <hal/nrf_gpiote.h>
+#include <hal/nrf_gpio.h>
+#include <hal/nrf_spim.h>
+#include <hal/nrf_dppi.h>
 
-LOG_MODULE_REGISTER(app);
+#define INPUT_CONFIG_0 0
+#define INPUT_CONFIG_1 1
 
-#define ALARM_PERIOD_US 50000
+#define OUTPUT_CONFIG 2
 
-#if IS_ENABLED(CONFIG_USE_RTC2)
-#define RTC       NRF_RTC2
-#define RTC_LABEL DT_LABEL(DT_NODELABEL(rtc2))
-#else
-#define RTC       NRF_RTC0
-#define RTC_LABEL DT_LABEL(DT_NODELABEL(rtc0))
-#endif
+#define LED_4 0x05
 
-static void alarm_callback(struct device *dev, u8_t chan_id, u32_t ticks,
-			   void *user_data);
+#define BUTTON_1 0x06
+#define BUTTON_2 0x07
 
-static struct counter_alarm_cfg alarm_cfg = {
-	.callback = alarm_callback,
-	.flags = COUNTER_ALARM_CFG_ABSOLUTE,
-};
-
-extern void bluetooth_enable(void);
-
-static void ppi_trace_pin_setup(u32_t pin, u32_t evt)
-{
-	void *handle;
-
-	handle = ppi_trace_config(pin, evt);
-	__ASSERT(handle != NULL,
-		"Failed to initialize trace pin, no PPI or GPIOTE resources?");
-
-	ppi_trace_enable(handle);
-}
-
-static void ppi_trace_setup(void)
-{
-	ppi_trace_pin_setup(CONFIG_PPI_TRACE_PIN_RTC_COMPARE_EVT,
-		nrf_rtc_event_address_get(RTC, NRF_RTC_EVENT_COMPARE_0));
-
-	/* Due to low power domain events must be explicitly enabled in RTC. */
-	nrf_rtc_event_enable(RTC, NRF_RTC_INT_TICK_MASK);
-	ppi_trace_pin_setup(CONFIG_PPI_TRACE_PIN_RTC_TICK_EVT,
-		nrf_rtc_event_address_get(RTC, NRF_RTC_EVENT_TICK));
-
-	ppi_trace_pin_setup(CONFIG_PPI_TRACE_PIN_LFCLOCK_STARTED_EVT,
-		nrf_clock_event_address_get(NRF_CLOCK,
-					    NRF_CLOCK_EVENT_LFCLKSTARTED));
-
-	LOG_INF("PPI trace setup done.");
-}
-
-static void alarm_callback(struct device *dev, u8_t chan_id, u32_t ticks,
-			   void *user_data)
-{
-	int err;
-	u32_t alarm_cnt = (u32_t)user_data + 1;
-
-	alarm_cfg.ticks = ticks + counter_us_to_ticks(dev, ALARM_PERIOD_US);
-	alarm_cfg.user_data = (void *)alarm_cnt;
-
-	err = counter_set_channel_alarm(dev, 0, &alarm_cfg);
-	__ASSERT_NO_MSG(err == 0);
-	(void)err;
-}
-
-static void counter_setup(void)
-{
-	int err;
-	struct device *dev = device_get_binding(RTC_LABEL);
-
-	__ASSERT(dev, "Sample cannot run on this board.");
-
-	alarm_cfg.ticks = counter_us_to_ticks(dev, ALARM_PERIOD_US);
-	err = counter_set_channel_alarm(dev, 0, &alarm_cfg);
-	__ASSERT_NO_MSG(err == 0);
-
-	err = counter_start(dev);
-	__ASSERT_NO_MSG(err == 0);
-}
+static uint8_t receive_buffer[1024];
 
 void main(void)
 {
-	ppi_trace_setup();
-	counter_setup();
+    const uint8_t trigger_spi_channel = 0;
+    const uint8_t trigger_led_channel = 1;
 
-	if (IS_ENABLED(CONFIG_BT)) {
-		bluetooth_enable();
-	}
+    memset(receive_buffer, 0x55, 1024);
+
+    nrf_gpio_cfg_input(BUTTON_1, NRF_GPIO_PIN_PULLUP);
+    nrf_gpiote_event_configure(NRF_GPIOTE, INPUT_CONFIG_0, BUTTON_1, NRF_GPIOTE_POLARITY_LOTOHI);
+    nrf_gpiote_event_enable(NRF_GPIOTE, INPUT_CONFIG_0);
+
+    nrf_gpiote_task_configure(NRF_GPIOTE, OUTPUT_CONFIG, LED_4, NRF_GPIOTE_POLARITY_TOGGLE, 0);
+    nrf_gpiote_task_enable(NRF_GPIOTE, OUTPUT_CONFIG);
+
+    nrf_gpiote_publish_set(NRF_GPIOTE, NRF_GPIOTE_EVENT_IN_0, trigger_spi_channel);
+    nrf_gpiote_subscribe_set(NRF_GPIOTE, NRF_GPIOTE_TASK_OUT_2, trigger_led_channel);
+
+    nrf_spim_frequency_set(NRF_SPIM0, NRF_SPIM_FREQ_2M);
+    nrf_spim_rx_buffer_set(NRF_SPIM0, receive_buffer, 896);
+
+    nrf_spim_subscribe_set(NRF_SPIM0, NRF_SPIM_TASK_START, trigger_spi_channel);
+    nrf_spim_publish_set(NRF_SPIM0, NRF_SPIM_EVENT_END, trigger_led_channel);
+    nrf_spim_enable(NRF_SPIM0);
+
+    nrf_dppi_channels_enable(NRF_DPPIC, 0x00000003);
 }
