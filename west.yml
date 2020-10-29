@@ -29,6 +29,8 @@ manifest:
       url-base: https://github.com/ThrowTheSwitch
     - name: armmbed
       url-base: https://github.com/ARMmbed
+    - name: tensorflow
+      url-base: https://github.com/tensorflow
 
   # If not otherwise specified, the projects below should be obtained
   # from the ncs remote.
@@ -112,6 +114,8 @@ manifest:
       repo-path: mbedtls
       revision: mbedtls-2.16.6
       remote: armmbed
+    - name: tensorflow
+      path: tensorflow
 
   # West-related configuration for the nrf repository.
   self:
