@@ -115,7 +115,9 @@ manifest:
       revision: mbedtls-2.16.6
       remote: armmbed
     - name: tensorflow
-      path: tensorflow
+      path: modules/lib/tensorflow
+      revision: v2.3.1
+      remote: tensorflow
 
   # West-related configuration for the nrf repository.
   self:
